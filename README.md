@@ -18,6 +18,7 @@ Plateforme de paiement Mobile Money pour le Cameroun. Ce dépôt regroupe l'ense
 - [Frontend (React / Next.js)](#frontend-react--nextjs)
 - [Mobile (Flutter)](#mobile-flutter)
 - [Docker](#docker)
+- [Kubernetes](#kubernetes)
 - [Installation et démarrage local](#installation-et-démarrage-local)
 - [Variables d'environnement](#variables-denvironnement)
 - [Licence](#licence)
@@ -54,6 +55,57 @@ Plateforme de paiement Mobile Money pour le Cameroun. Ce dépôt regroupe l'ense
 
 Toutes les communications entre le frontend / mobile et les microservices passent par l'**API Gateway**, qui gère l'authentification JWT et le proxy des requêtes.
 
+### Diagramme d'architecture (Mermaid)
+
+```mermaid
+flowchart TB
+    subgraph Clients["Clients"]
+        WEB["Frontend Web<br/>React / Next.js<br/>:3000"]
+        MOB["Mobile<br/>Flutter (APK)"]
+        POS["Postman / outils API"]
+    end
+
+    subgraph Backend["Backend (NestJS)"]
+        GW{{"API Gateway<br/>:4000<br/>Auth JWT + Proxy"}}
+        subgraph Micro["Microservices"]
+            TS["Transaction Service<br/>:4001"]
+            PS["Partner Service<br/>:4002"]
+            FS["Fee Service<br/>:4003"]
+            NS["Notification Service<br/>:4004"]
+        end
+    end
+
+    subgraph Infra["Déploiement"]
+        subgraph Compose["Docker Compose"]
+            DC["Conteneurs paycash-*"]
+        end
+        subgraph K8S["Kubernetes (Docker Desktop)"]
+            ING["Ingress-nginx"]
+            LB["Services LoadBalancer<br/>frontend:3000 · gateway:4000"]
+            DEP["Deployments (probes,<br/>ressources, rolling update)"]
+        end
+    end
+
+    WEB -- "HTTP / JWT<br/>localhost:3000" --> GW
+    MOB -- "HTTP / JWT<br/>localhost:4000/api" --> GW
+    POS -- "HTTP / JWT" --> GW
+    GW -- "/api/transactions/*" --> TS
+    GW -- "/api/partners/*" --> PS
+    GW -- "/api/fees/*" --> FS
+    GW -- "/api/notifications/*" --> NS
+    TS -- "proxy interne" --> PS
+    TS -- "proxy interne" --> FS
+    TS -- "proxy interne" --> NS
+    GW -.->|"health :4000"| ING
+    WEB -.->|"page :3000"| LB
+    GW -.->|"api :4000"| LB
+    LB -.-> DEP
+    ING -.-> DEP
+    TS -.->|"/health"| DEP
+```
+
+> Le diagramme se rend automatiquement sur GitHub. Pour un export PNG, copier le bloc dans [Mermaid Live Editor](https://mermaid.live) ou utiliser `npx @mermaid-js/mermaid-cli -i diagram.md -o diagram.png`.
+
 ---
 
 ## Structure du dépôt
@@ -70,7 +122,8 @@ paycash-platform/
 │   ├── paycash_postman.json  # Collection Postman
 │   └── docker-compose.yml    # Compose des services backend
 ├── frontend-react/        # Application web React / Next.js
-├── mobile_flutter/        # Application mobile Flutter
+├── mobile_flutter/        # Application mobile Flutter (+ Dockerfile → APK)
+├── k8s/                   # Manifests Kubernetes (Deployments, Services, Ingress, ConfigMaps)
 ├── docker-compose.yml     # Compose racine (frontend + backend)
 └── README.md
 ```
@@ -85,6 +138,7 @@ paycash-platform/
 | Frontend | React 19, Next.js 16, Tailwind CSS 4, TypeScript |
 | Mobile | Flutter, Dart, BLoC, Dio, get_it |
 | Conteneurisation | Docker, Docker Compose |
+| Orchestration | Kubernetes (Docker Desktop, ingress-nginx, kustomize) |
 | Style | Prettier, ESLint |
 
 ---
@@ -224,6 +278,7 @@ flutter run                          # lance l'app sur un device/émulateur
 flutter analyze                     # analyse statique
 flutter test                        # tests unitaires
 flutter build apk                   # build Android
+docker build -t paycash/mobile-flutter:latest .   # build APK via Docker (artefact /artifacts/app-release.apk)
 ```
 
 ---
@@ -255,6 +310,89 @@ Conteneurs créés :
 | `paycash-frontend` | Frontend Web (port 3000) |
 
 Tous les conteneurs partagent le réseau `paycash-net`.
+
+### Image Flutter (mobile)
+
+Le dossier `mobile_flutter/` contient son propre `Dockerfile` : il compile l'application en **APK Android release** et expose l'artefact sans exécuter de serveur (l'app mobile est livrée sur un device, pas déployée comme un service).
+
+```bash
+docker build -t paycash/mobile-flutter:latest mobile_flutter
+
+# Récupérer l'APK compilé
+docker create --name paycash-mobile-extract paycash/mobile-flutter:latest
+docker cp paycash-mobile-extract:/artifacts/app-release.apk ./app-release.apk
+docker rm paycash-mobile-extract
+```
+
+> La génération de l'APK mobile est gérée par **GitHub Actions** (hors périmètre Kubernetes).
+
+---
+
+## Kubernetes
+
+Les manifests Kubernetes se trouvent dans `k8s/` (namespace `paycash`), déployés avec `kubectl apply -k k8s/` (kustomize). Chaque Deployment inclut **probes de santé** (startup / liveness / readiness), **limites de ressources** (CPU / mémoire) et **stratégie RollingUpdate**.
+
+### Prérequis
+
+- **Docker Desktop** avec l'option *Settings → Kubernetes → Enable Kubernetes* activée
+- `kubectl` (fourni avec Docker Desktop)
+
+### Fichiers
+
+| Fichier | Contenu |
+|---------|---------|
+| `namespace.yaml` | Namespace `paycash` |
+| `configmap.yaml` | Configurations partagées (URLs internes, ports, SMTP, API URL frontend) |
+| `secret.yaml` | Secrets JWT / HMAC / SMTP (⚠️ à remplacer en production) |
+| `gateway.yaml` | API Gateway : Deployment + Service (LoadBalancer `:4000`) |
+| `transaction-service.yaml` | Transaction Service : Deployment + Service (`:4001`, interne) |
+| `microservices.yaml` | Partner / Fee / Notification Services : Deployment + Service (internes) |
+| `frontend.yaml` | Frontend React : Deployment + Service (LoadBalancer `:3000`) |
+| `ingress.yaml` | Ingress NGINX (frontend `/` + API `/api`, `/auth`, `/health`) |
+| `kustomization.yaml` | Agrégation des manifests |
+
+### Démarrage / arrêt (2 commandes)
+
+```bash
+# CRÉER / LANCER
+kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/cloud/deploy.yaml && kubectl apply -k k8s/
+
+# SUPPRIMER
+kubectl delete -k k8s/ && kubectl delete -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/cloud/deploy.yaml
+```
+
+### Points d'accès en local (dev)
+
+Les Services `frontend` et `gateway` sont en `type: LoadBalancer` → Docker Desktop les expose directement sur la machine :
+
+| URL | Accès |
+|-----|-------|
+| `http://localhost:3000/login` | Frontend React (dashboard) |
+| `http://localhost:4000/auth/login` | Login (token JWT) |
+| `http://localhost:4000/api/transactions/transactions` | Transactions (proxy gateway) |
+| `http://localhost:4000/health` | Health check gateway |
+| `http://localhost:4000/api/docs` | Swagger |
+
+Le frontend cible l'API via `NEXT_PUBLIC_API_URL` (défaut : `http://localhost:4000`), injecté au **build** de l'image :
+
+```bash
+docker build -t paycash/frontend-react:latest --build-arg NEXT_PUBLIC_API_URL=http://localhost:4000 frontend-react
+```
+
+### Images des services
+
+```bash
+# Depuis le dossier backend/
+docker build -t paycash/api-gateway:latest        -f api-gateway/Dockerfile .
+docker build -t paycash/transaction-service:latest -f transaction-service/Dockerfile .
+docker build -t paycash/partner-service:latest     -f partner-service/Dockerfile .
+docker build -t paycash/fee-service:latest         -f fee-service/Dockerfile .
+docker build -t paycash/notification-service:latest -f notification-service/Dockerfile .
+```
+
+### Endpoints de santé
+
+Chaque service expose `GET /health` (ajouté dans `src/modules/health/`) pour les probes : `transaction-service`, `partner-service`, `fee-service`, `notification-service`, `api-gateway`.
 
 ---
 

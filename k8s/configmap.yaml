@@ -1,0 +1,47 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: paycash-backend-config
+  namespace: paycash
+  labels:
+    app.kubernetes.io/part-of: paycash-platform
+    app.kubernetes.io/component: backend
+data:
+  # URLs internes des microservices (découvertes via les Services K8s)
+  TRANSACTION_SERVICE_URL: "http://transaction-service:4001"
+  PARTNER_SERVICE_URL: "http://partner-service:4002"
+  FEE_SERVICE_URL: "http://fee-service:4003"
+  NOTIFICATION_SERVICE_URL: "http://notification-service:4004"
+  SMTP_HOST: "smtp.gmail.com"
+  SMTP_PORT: "587"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: paycash-gateway-config
+  namespace: paycash
+  labels:
+    app.kubernetes.io/part-of: paycash-platform
+    app.kubernetes.io/component: api-gateway
+data:
+  PORT: "4000"
+  TRANSACTION_SERVICE_URL: "http://transaction-service:4001"
+  PARTNER_SERVICE_URL: "http://partner-service:4002"
+  FEE_SERVICE_URL: "http://fee-service:4003"
+  NOTIFICATION_SERVICE_URL: "http://notification-service:4004"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: paycash-frontend-config
+  namespace: paycash
+  labels:
+    app.kubernetes.io/part-of: paycash-platform
+    app.kubernetes.io/component: frontend-react
+data:
+  NODE_ENV: "production"
+  PORT: "3000"
+  HOSTNAME: "0.0.0.0"
+  # URL publique de l'API (baked au build via --build-arg NEXT_PUBLIC_API_URL,
+  # car Next.js inline les variables NEXT_PUBLIC_* au build, pas au runtime)
+  NEXT_PUBLIC_API_URL: "http://localhost:4000"

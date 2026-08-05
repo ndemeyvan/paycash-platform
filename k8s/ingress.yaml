@@ -1,0 +1,73 @@
+# Ingress principal : frontend React (dev local → http://localhost)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: paycash-frontend
+  namespace: paycash
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "false"
+    nginx.ingress.kubernetes.io/proxy-body-size: 10m
+  labels:
+    app.kubernetes.io/name: frontend-react
+    app.kubernetes.io/part-of: paycash-platform
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: localhost
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend
+                port:
+                  number: 3000
+---
+# Ingress API : point d'entrée UNIQUE via la gateway (dev local → http://localhost)
+# /api/*   → proxy gateway → microservices (transactions, partners, fees, notifications)
+# /auth/*  → auth gateway (login, token)
+# /health  → gateway
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: paycash-api
+  namespace: paycash
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "false"
+    nginx.ingress.kubernetes.io/proxy-body-size: 10m
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+  labels:
+    app.kubernetes.io/name: api-gateway
+    app.kubernetes.io/part-of: paycash-platform
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: localhost
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: gateway
+                port:
+                  number: 4000
+          - path: /auth
+            pathType: Prefix
+            backend:
+              service:
+                name: gateway
+                port:
+                  number: 4000
+          - path: /health
+            pathType: Exact
+            backend:
+              service:
+                name: gateway
+                port:
+                  number: 4000
