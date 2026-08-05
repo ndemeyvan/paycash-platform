@@ -1,0 +1,88 @@
+services:
+  gateway:
+    build:
+      context: .
+      dockerfile: api-gateway/Dockerfile
+    container_name: paycash-gateway
+    ports:
+      - "4000:4000"
+    environment:
+      - PORT=4000
+      - JWT_SECRET=paycash-jwt-secret-key-2024
+      - HMAC_SECRET=paycash-default-secret-2024
+      - TRANSACTION_SERVICE_URL=http://transaction-service:4001
+      - PARTNER_SERVICE_URL=http://partner-service:4002
+      - FEE_SERVICE_URL=http://fee-service:4003
+      - NOTIFICATION_SERVICE_URL=http://notification-service:4004
+    depends_on:
+      transaction-service:
+        condition: service_started
+      partner-service:
+        condition: service_started
+      fee-service:
+        condition: service_started
+      notification-service:
+        condition: service_started
+    networks:
+      - paycash-net
+    restart: unless-stopped
+
+  transaction-service:
+    build:
+      context: .
+      dockerfile: transaction-service/Dockerfile
+    container_name: paycash-transaction
+    environment:
+      - PORT=4001
+      - JWT_SECRET=paycash-jwt-secret-key-2024
+      - HMAC_SECRET=paycash-default-secret-2024
+      - TRANSACTION_SERVICE_URL=http://transaction-service:4001
+      - PARTNER_SERVICE_URL=http://partner-service:4002
+      - FEE_SERVICE_URL=http://fee-service:4003
+      - NOTIFICATION_SERVICE_URL=http://notification-service:4004
+    networks:
+      - paycash-net
+    restart: unless-stopped
+
+  partner-service:
+    build:
+      context: .
+      dockerfile: partner-service/Dockerfile
+    container_name: paycash-partner
+    environment:
+      - PORT=4002
+      - JWT_SECRET=paycash-jwt-secret-key-2024
+    networks:
+      - paycash-net
+    restart: unless-stopped
+
+  fee-service:
+    build:
+      context: .
+      dockerfile: fee-service/Dockerfile
+    container_name: paycash-fee
+    environment:
+      - PORT=4003
+      - JWT_SECRET=paycash-jwt-secret-key-2024
+    networks:
+      - paycash-net
+    restart: unless-stopped
+
+  notification-service:
+    build:
+      context: .
+      dockerfile: notification-service/Dockerfile
+    container_name: paycash-notification
+    environment:
+      - PORT=4004
+      - JWT_SECRET=paycash-jwt-secret-key-2024
+      - SMTP_HOST=smtp.gmail.com
+      - SMTP_PORT=587
+      - SMTP_USER=notifications@paycash.cm
+    networks:
+      - paycash-net
+    restart: unless-stopped
+
+networks:
+  paycash-net:
+    driver: bridge

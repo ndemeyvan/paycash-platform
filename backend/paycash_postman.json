@@ -1,0 +1,251 @@
+{
+  "info": {
+    "name": "PayCash Cameroon - Microservices",
+    "description": "Test complet du flow PayCash Cameroon.\n\n📋 FLOW :\n  1. POST /auth/login → récupère le token JWT (stocké auto)\n  2. 🚀 INITIER TRANSACTION → flow complet via le Gateway\n  3. Vérifier statut → Lister → Email\n\n🔐 Login : admin / paycash2024\n⚙️ Gateway:4000 → Transaction:4001 + Partner:4002 + Fee:4003 + Notification:4004",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      { "key": "token", "value": "{{token}}", "type": "string" }
+    ]
+  },
+  "variable": [
+    { "key": "gateway_url", "value": "http://localhost:4000", "type": "string" },
+    { "key": "token", "value": "", "type": "string" },
+    { "key": "transaction_id", "value": "", "type": "string" },
+    { "key": "phone_number", "value": "671234567", "type": "string" },
+    { "key": "amount", "value": "5000", "type": "string" },
+    { "key": "ref", "value": "", "type": "string" }
+  ],
+  "item": [
+    {
+      "name": "🔐 LOGIN (récupérer token JWT)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Token JWT récupéré', () => {",
+              "  pm.response.to.have.status(201);",
+              "  const b = pm.response.json();",
+              "  pm.expect(b).to.have.property('access_token');",
+              "  pm.collectionVariables.set('token', b.access_token);",
+              "  pm.collectionVariables.set('transaction_id', '');",
+              "  console.log('🔑 Token: ' + b.access_token.substring(0, 50) + '...');",
+              "  console.log('✅ Token stocké, tu peux continuer le flow');",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": { "raw": "{{gateway_url}}/auth/login", "host": ["{{gateway_url}}"], "path": ["auth", "login"] },
+        "body": { "mode": "raw", "raw": "{\n  \"username\": \"admin\",\n  \"password\": \"paycash2024\"\n}" }
+      }
+    },
+    {
+      "name": "Health Check",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Gateway UP', () => {",
+              "  pm.response.to.have.status(200);",
+              "  console.log('✅ Gateway OK');",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": { "method": "GET", "url": { "raw": "{{gateway_url}}/health", "host": ["{{gateway_url}}"], "path": ["health"] }, "header": [] }
+    },
+    {
+      "name": "Vérifier compte (Partner)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Compte vérifié', () => {",
+              "  const b = pm.response.json();",
+              "  console.log('📱 ' + b.phoneNumber + ' | ' + b.operator + ' | Valid: ' + b.isValid);",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": { "raw": "{{gateway_url}}/api/partners/partners/verify", "host": ["{{gateway_url}}"], "path": ["api", "partners", "partners", "verify"] },
+        "body": { "mode": "raw", "raw": "{\n  \"phoneNumber\": \"{{phone_number}}\",\n  \"operator\": \"ORANGE\"\n}" }
+      }
+    },
+    {
+      "name": "Calculer frais",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Frais OK', () => {",
+              "  const b = pm.response.json();",
+              "  console.log('💰 Total: ' + b.total + ' XAF | Net: ' + b.netAmount);",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": { "raw": "{{gateway_url}}/api/fees/fees/calculate", "host": ["{{gateway_url}}"], "path": ["api", "fees", "fees", "calculate"] },
+        "body": { "mode": "raw", "raw": "{\n  \"amount\": {{amount}},\n  \"operator\": \"ORANGE\",\n  \"transactionType\": \"P2P\",\n  \"userPaysFees\": true\n}" }
+      }
+    },
+    {
+      "name": "🚀 INITIER UNE TRANSACTION",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "exec": [
+              "const ref = 'PAY-' + Date.now().toString(36).toUpperCase();",
+              "pm.collectionVariables.set('ref', ref);",
+              "console.log('📝 Réf: ' + ref);"
+            ],
+            "type": "text/javascript"
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('✅ Transaction initiée', () => {",
+              "  pm.response.to.have.status(201);",
+              "  const b = pm.response.json();",
+              "  pm.expect(b).to.have.property('transactionId');",
+              "  pm.expect(b).to.have.property('status', 'PENDING');",
+              "  pm.expect(b).to.have.property('signature');",
+              "  pm.collectionVariables.set('transaction_id', b.transactionId);",
+              "  console.log('');",
+              "  console.log('╔══════════════════════════════╗');",
+              "  console.log('║  TRANSACTION INITIÉE        ║');",
+              "  console.log('╠══════════════════════════════╣');",
+              "  console.log('║ ID : ' + b.transactionId);",
+              "  console.log('║ Frais: ' + b.fees + ' XAF');",
+              "  console.log('╚══════════════════════════════╝');",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": { "raw": "{{gateway_url}}/api/transactions/transactions/initiate", "host": ["{{gateway_url}}"], "path": ["api", "transactions", "transactions", "initiate"] },
+        "body": { "mode": "raw", "raw": "{\n  \"phoneNumber\": \"{{phone_number}}\",\n  \"amount\": {{amount}},\n  \"reference\": \"{{ref}}\",\n  \"email\": \"client.test@example.com\",\n  \"metadata\": { \"device\": \"postman\" }\n}" }
+      }
+    },
+    {
+      "name": "Vérifier statut",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Statut OK', () => {",
+              "  const b = pm.response.json();",
+              "  console.log('🔍 ' + b.id + ' | ' + b.status + ' | ' + b.amount + ' XAF');",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": { "raw": "{{gateway_url}}/api/transactions/transactions/{{transaction_id}}/status", "host": ["{{gateway_url}}"], "path": ["api", "transactions", "transactions", "{{transaction_id}}", "status"] }
+      }
+    },
+    {
+      "name": "Transactions par numéro (paginé)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('OK', () => {",
+              "  const b = pm.response.json();",
+              "  const d = b.data || b;",
+              "  console.log('📱 ' + d.phoneNumber + ' | ' + d.items.length + '/' + d.total + ' transactions | Page ' + d.page + '/' + d.totalPages);",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": { "raw": "{{gateway_url}}/api/transactions/transactions/phone/{{phone_number}}?page=1&limit=10", "host": ["{{gateway_url}}"], "path": ["api", "transactions", "transactions", "phone", "{{phone_number}}"], "query": [{"key": "page", "value": "1"}, {"key": "limit", "value": "10"}] }
+      }
+    },
+    {
+      "name": "Lister transactions (paginé)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Liste OK', () => {",
+              "  const b = pm.response.json();",
+              "  const d = b.data || b;",
+              "  console.log('📋 ' + d.items.length + '/' + d.total + ' transactions | Page ' + d.page + '/' + d.totalPages);",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": { "raw": "{{gateway_url}}/api/transactions/transactions?page=1&limit=10", "host": ["{{gateway_url}}"], "path": ["api", "transactions", "transactions"], "query": [{"key": "page", "value": "1"}, {"key": "limit", "value": "10"}] }
+      }
+    },
+    {
+      "name": "Email confirmation",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Email OK', () => {",
+              "  const b = pm.response.json();",
+              "  console.log('📧 ' + (b.success ? '✅ Envoyé' : '❌ Échec') + ' | ' + b.messageId);",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": { "raw": "{{gateway_url}}/api/notifications/notifications/email/transaction-success", "host": ["{{gateway_url}}"], "path": ["api", "notifications", "notifications", "email", "transaction-success"] },
+        "body": { "mode": "raw", "raw": "{\n  \"to\": \"client.test@example.com\",\n  \"transactionId\": \"{{transaction_id}}\",\n  \"amount\": {{amount}},\n  \"phoneNumber\": \"{{phone_number}}\",\n  \"fees\": 50,\n  \"operator\": \"ORANGE\",\n  \"createdAt\": \"2024-01-15T10:30:00.000Z\"\n}" }
+      }
+    }
+  ]
+}

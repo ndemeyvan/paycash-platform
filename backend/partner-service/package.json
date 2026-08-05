@@ -1,0 +1,27 @@
+{
+  "name": "@paycash/partner-service",
+  "version": "1.0.0",
+  "description": "Partner Service for PayCash Platform",
+  "private": true,
+  "scripts": {
+    "start": "nest start",
+    "start:dev": "nest start --watch",
+    "build": "nest build",
+    "test": "jest",
+    "test:cov": "jest --coverage",
+    "lint": "eslint src --ext .ts"
+  },
+  "jest": {
+    "moduleFileExtensions": ["js", "json", "ts"],
+    "rootDir": "src",
+    "testRegex": ".*\\.spec\\.ts$",
+    "transform": { "^.+\\.(t|j)s$": "ts-jest" },
+    "collectCoverageFrom": ["**/*.(t|j)s"],
+    "coverageDirectory": "../coverage",
+    "testEnvironment": "node",
+    "moduleNameMapper": {
+      "^@paycash/shared-types$": "<rootDir>/../../shared-types/src",
+      "^@paycash/shared-types/(.*)$": "<rootDir>/../../shared-types/src/$1"
+    }
+  }
+}
