@@ -148,13 +148,14 @@ jobs:
           cache-to: type=gha,mode=max,scope=${{ matrix.image }}
 
       - name: Trivy security scan
-        uses: aquasecurity/trivy-action@v0.30.0
-        with:
-          image-ref: paycash/${{ matrix.image }}:ci
-          format: table
-          exit-code: '1'
-          severity: CRITICAL,HIGH
-          ignore-unfixed: true
+        run: |
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            aquasec/trivy:0.73.0 image \
+            --exit-code 1 \
+            --severity CRITICAL,HIGH \
+            --ignore-unfixed \
+            paycash/${{ matrix.image }}:ci
 
       - name: Sauvegarder l'image en artefact
         run: |
