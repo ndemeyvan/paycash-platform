@@ -71,9 +71,16 @@ export async function login(credentials: LoginCredentials): Promise<void> {
   setToken(json.data.access_token);
 }
 
+export class AuthError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "AuthError";
+  }
+}
+
 export async function fetchTransactions(page = 1, limit = 10): Promise<TransactionsData> {
   const token = getToken();
-  if (!token) throw new Error("Non authentifié");
+  if (!token) throw new AuthError("Non authentifié");
 
   const params = new URLSearchParams({ page: String(page), limit: String(limit) });
   const response = await fetch(`${GATEWAY_URL}/api/transactions/transactions?${params}`, {
@@ -85,8 +92,7 @@ export async function fetchTransactions(page = 1, limit = 10): Promise<Transacti
   if (!response.ok) {
     if (response.status === 401) {
       removeToken();
-      window.location.href = "/login";
-      throw new Error("Session expirée");
+      throw new AuthError("Session expirée");
     }
     throw new Error(`Erreur ${response.status}`);
   }
@@ -97,5 +103,4 @@ export async function fetchTransactions(page = 1, limit = 10): Promise<Transacti
 
 export function logout(): void {
   removeToken();
-  window.location.href = "/login";
 }

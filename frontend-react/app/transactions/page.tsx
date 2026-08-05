@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { isAuthenticated, fetchTransactions, logout, type Transaction } from "@/lib/auth";
+import { isAuthenticated, fetchTransactions, logout, AuthError, type Transaction } from "@/lib/auth";
 
 const STATUS_LABELS: Record<string, string> = {
   PENDING: "En attente",
@@ -43,7 +43,6 @@ export default function TransactionsPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [isClient, setIsClient] = useState(false);
 
   const loadTransactions = useCallback(async (targetPage: number, isRefresh = false) => {
     if (isRefresh) setRefreshing(true);
@@ -57,6 +56,10 @@ export default function TransactionsPage() {
       setPage(data.page);
       setTotalPages(data.totalPages);
     } catch (err) {
+      if (err instanceof AuthError) {
+        router.replace("/login");
+        return;
+      }
       if (err instanceof Error) {
         setError(err.message);
       } else {
@@ -66,23 +69,21 @@ export default function TransactionsPage() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [router]);
 
   useEffect(() => {
-    setIsClient(true);
+    if (typeof window === "undefined") return;
     if (!isAuthenticated()) {
       router.replace("/login");
       return;
     }
-    loadTransactions(1);
+    queueMicrotask(() => loadTransactions(1));
   }, [loadTransactions, router]);
 
   function goToPage(targetPage: number) {
     if (targetPage < 1 || targetPage > totalPages || targetPage === page) return;
     loadTransactions(targetPage);
   }
-
-  if (!isClient) return null;
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -116,7 +117,10 @@ export default function TransactionsPage() {
           </div>
 
           <button
-            onClick={() => logout()}
+            onClick={() => {
+              logout();
+              router.push("/login");
+            }}
             className="flex items-center gap-2 px-4 py-2 text-sm text-muted hover:text-error border border-border hover:border-error/30 rounded-xl transition-all duration-200 cursor-pointer"
           >
             <svg

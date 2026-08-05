@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 
 interface ToastProps {
   message: string;
@@ -9,30 +9,37 @@ interface ToastProps {
 }
 
 export default function Toast({ message, show, onDone }: ToastProps) {
-  const [visible, setVisible] = useState(false);
   const [exiting, setExiting] = useState(false);
+  const doneRef = useRef(onDone);
 
   useEffect(() => {
-    if (show) {
-      setVisible(true);
-      setExiting(false);
-      const timer = setTimeout(() => {
-        setExiting(true);
-        setTimeout(() => {
-          setVisible(false);
-          onDone?.();
-        }, 300);
-      }, 2000);
-      return () => clearTimeout(timer);
-    }
-  }, [show, onDone]);
+    doneRef.current = onDone;
+  });
 
-  if (!visible && !show) return null;
+  useEffect(() => {
+    if (!show) return;
+
+    queueMicrotask(() => setExiting(false));
+
+    const exitTimer = setTimeout(() => setExiting(true), 2000);
+
+    return () => clearTimeout(exitTimer);
+  }, [show]);
+
+  useEffect(() => {
+    if (!exiting) return;
+
+    const doneTimer = setTimeout(() => doneRef.current?.(), 300);
+
+    return () => clearTimeout(doneTimer);
+  }, [exiting]);
+
+  if (!show && !exiting) return null;
 
   return (
     <div
       className={`fixed top-6 right-6 z-[9999] flex items-center gap-3 px-5 py-3.5 bg-success/10 border border-success/20 text-success rounded-xl backdrop-blur-xl shadow-2xl shadow-success/10 transition-all duration-300 ${
-        visible && !exiting
+        show && !exiting
           ? "translate-x-0 opacity-100"
           : "translate-x-4 opacity-0"
       }`}
