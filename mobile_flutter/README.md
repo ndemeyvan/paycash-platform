@@ -2,6 +2,14 @@
 
 Application Flutter de transfert d'argent (PayCash). Ecran de saisie du numero + montant, calcul des frais, resume de la transaction puis initiation du paiement.
 
+## Captures d'écran
+
+![Écran d'accueil - saisie du numéro et du montant](assets/images/1.png)
+
+![Écran de confirmation - résumé des frais](assets/images/2.png)
+
+![Transaction réussie](assets/images/3.png)
+
 ## Architecture
 
 ```
