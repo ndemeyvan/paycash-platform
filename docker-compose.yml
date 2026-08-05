@@ -1,0 +1,17 @@
+include:
+  - path: backend/docker-compose.yml
+
+services:
+  frontend:
+    build:
+      context: frontend-react
+      dockerfile: Dockerfile
+    container_name: paycash-frontend
+    ports:
+      - "3000:3000"
+    networks:
+      - paycash-net
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - NEXT_PUBLIC_API_URL=http://gateway:4000
