@@ -1,0 +1,184 @@
+name: CI - Lint, Tests, Build & Security Scan
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+    branches:
+      - main
+      - develop
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ─────────────────────────── LINT ───────────────────────────
+  lint:
+    name: Lint (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: backend
+            working-directory: backend
+            node-version: 20
+            install: npm ci --legacy-peer-deps
+            command: npm run lint
+          - name: frontend
+            working-directory: frontend-react
+            node-version: 22
+            install: npm ci
+            command: npm run lint
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+          cache-dependency-path: ${{ matrix.working-directory }}/package-lock.json
+      - run: ${{ matrix.install }}
+        working-directory: ${{ matrix.working-directory }}
+      - run: ${{ matrix.command }}
+        working-directory: ${{ matrix.working-directory }}
+
+  # ─────────────────────────── TESTS ───────────────────────────
+  test:
+    name: Tests (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: backend
+            working-directory: backend
+            node-version: 20
+            install: npm ci --legacy-peer-deps
+            command: npm test -- --runInBand
+          # Le frontend React n'a pas encore de tests unitaires → typecheck TS en guise de vérification
+          - name: frontend
+            working-directory: frontend-react
+            node-version: 22
+            install: npm ci
+            command: npx tsc --noEmit
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+          cache-dependency-path: ${{ matrix.working-directory }}/package-lock.json
+      - run: ${{ matrix.install }}
+        working-directory: ${{ matrix.working-directory }}
+      - run: ${{ matrix.command }}
+        working-directory: ${{ matrix.working-directory }}
+
+  # ─────────────────────────── MOBILE (Flutter) ───────────────────────────
+  mobile:
+    name: Mobile (analyze + test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+        working-directory: mobile_flutter
+      - run: flutter analyze
+        working-directory: mobile_flutter
+      - run: flutter test
+        working-directory: mobile_flutter
+
+  # ─────────────── BUILD IMAGES + TRIVY + ARTEFACTS ───────────────
+  # Build les images, les scanne (Trivy) puis les sauvegarde en artefacts GitHub.
+  # Aucun push vers un registre externe, aucun secret requis.
+  build-images:
+    name: Build & scan ${{ matrix.image }}
+    needs: [lint, test, mobile]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: api-gateway
+            context: backend
+            dockerfile: api-gateway/Dockerfile
+          - image: transaction-service
+            context: backend
+            dockerfile: transaction-service/Dockerfile
+          - image: partner-service
+            context: backend
+            dockerfile: partner-service/Dockerfile
+          - image: fee-service
+            context: backend
+            dockerfile: fee-service/Dockerfile
+          - image: notification-service
+            context: backend
+            dockerfile: notification-service/Dockerfile
+          - image: frontend-react
+            context: frontend-react
+            dockerfile: Dockerfile
+            build-args: |
+              NEXT_PUBLIC_API_URL=${{ vars.NEXT_PUBLIC_API_URL || 'http://localhost:4000' }}
+          - image: mobile-flutter
+            context: mobile_flutter
+            dockerfile: Dockerfile
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.context }}/${{ matrix.dockerfile }}
+          build-args: ${{ matrix.build-args }}
+          tags: paycash/${{ matrix.image }}:ci
+          push: false
+          load: true
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+
+      - name: Trivy security scan
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: paycash/${{ matrix.image }}:ci
+          format: table
+          exit-code: '1'
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+
+      - name: Sauvegarder l'image en artefact
+        run: |
+          mkdir -p /tmp/docker-images
+          docker save paycash/${{ matrix.image }}:ci | gzip > /tmp/docker-images/${{ matrix.image }}.tar.gz
+
+      - name: Upload artefact (image)
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-image-${{ matrix.image }}
+          path: /tmp/docker-images/${{ matrix.image }}.tar.gz
+          if-no-files-found: error
+
+      - name: Extraire l'APK mobile
+        if: matrix.image == 'mobile-flutter'
+        run: |
+          docker create --name paycash-apk-extract paycash/mobile-flutter:ci
+          docker cp paycash-apk-extract:/artifacts/app-release.apk ./app-release.apk
+          docker rm paycash-apk-extract
+
+      - name: Upload artefact (APK mobile)
+        if: matrix.image == 'mobile-flutter'
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobile-flutter-apk
+          path: app-release.apk
+          if-no-files-found: error
